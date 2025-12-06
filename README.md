@@ -1,3 +1,11 @@
+Environment Dependencies:
+```
+Numpy<=1.26
+PyTorch, torchvision (Up-to-cuda)
+matplotlib
+opencv-python
+```
+
 Download COCO dataset as content data
 ```
 wget http://images.cocodataset.org/zips/train2014.zip (Large)
