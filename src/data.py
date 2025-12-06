@@ -65,7 +65,7 @@ class VimeoPairDataset(Dataset):
         self.root = root
 
         with open(list_file, "r") as f:
-            self.samples = [line.strip() for line in f if line.strip()]
+            self.samples = f.read().splitlines()
 
         self.transform = T.Compose([
             T.Resize((resize, resize)),
@@ -81,8 +81,8 @@ class VimeoPairDataset(Dataset):
         folder = os.path.join(self.root, sub)
 
         # expect two frames in each folder
-        f1 = os.path.join(folder, "im1.png")
-        f2 = os.path.join(folder, "im3.png")
+        f1 = os.path.join(folder, "img1.png")
+        f2 = os.path.join(folder, "img3.png")
 
         im1 = Image.open(f1).convert("RGB")
         im2 = Image.open(f2).convert("RGB")

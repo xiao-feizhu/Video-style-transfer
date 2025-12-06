@@ -15,7 +15,7 @@ from torchvision.utils import save_image
 
 from model import VGGEncoder, Decoder, AdaINStyleTransfer, calc_mean_std, adain
 from data import ImageFolderDataset, VimeoPairDataset
-from utility import normalize_for_vgg, warp_with_flow, combine_alpha, compute_local_alpha
+from utility import normalize_for_vgg, warp_with_flow
 
 import torchvision.models.optical_flow as OF
 
@@ -39,7 +39,7 @@ def compute_temporal_loss(g_t, g_tp1, c_t, c_tp1, flownet):
         flow = flownet(c_t, c_tp1)[-1]  # flow from t -> t+1
 
     g_t_warp = warp_with_flow(g_t, flow)  # warp stylized t into t+1 coords
-    temp_loss = torch.mean(torch.abs(g_t_warp - g_tp1))
+    temp_loss = torch.mean((g_t_warp - g_tp1) ** 2)
     return temp_loss
 
 class WarmupCosineDecay(torch.optim.lr_scheduler._LRScheduler):
@@ -76,9 +76,9 @@ def train(args):
 
     if args.flow:
         content_loader = DataLoader(
-            VimeoPairDataset(args.content, list_file="data/video/vimeo/tri_testlist.txt", resize=args.image_size*2),
+            VimeoPairDataset(args.content, list_file="data/video/tri_testlist.txt", resize=args.image_size*2),
             batch_size=args.batch_size,
-            shuffle=False, num_workers=args.workers, drop_last=True
+            shuffle=True, num_workers=args.workers, drop_last=True
         ) 
     else:
         content_loader = DataLoader(
@@ -96,14 +96,7 @@ def train(args):
 
     # Model
     encoder = VGGEncoder().to(device).eval()
-    finetune = args.finetune
-    if finetune is not None:
-        decoder = Decoder()
-        decoder.load_state_dict(torch.load(finetune))
-        decoder.to(device)
-        print(f"Loaded finetuned decoder from {finetune}")
-    else:
-        decoder = Decoder().to(device)
+    decoder = Decoder().to(device)
     # adain_net = AdaINStyleTransfer(encoder, decoder).to(device)
 
     # Only train decoder
@@ -112,10 +105,10 @@ def train(args):
 
     raft = OF.raft_small(pretrained=True).cuda().eval()
 
-    optimizer = torch.optim.Adam(decoder.parameters(), lr=args.lr, betas=(0.9, 0.999))
-    # scheduler = WarmupCosineDecay(optimizer, 
-    #                               warmup_steps=2*args.max_iter_per_epoch, 
-    #                               total_steps=args.max_steps)
+    optimizer = torch.optim.Adam(decoder.parameters(), lr=args.lr)
+    scheduler = WarmupCosineDecay(optimizer, 
+                                  warmup_steps=1*args.max_iter_per_epoch, 
+                                  total_steps=args.max_steps)
 
     content_weight = args.content_weight
     style_weight = args.style_weight
@@ -127,7 +120,7 @@ def train(args):
 
     global_step = 0
     losses = []
-    for epoch in range(args.epochs):
+    for epoch in range(5, args.epochs):
         if args.flow:
             pre_g = None
 
@@ -139,12 +132,8 @@ def train(args):
                     content = next(content_iter)
 
             except StopIteration:
-                if args.flow:
-                    content_iter = iter(content_loader)
-                    pre_c, content = next(content_iter)
-                else:
-                    content_iter = iter(content_loader)
-                    content = next(content_iter)
+                content_iter = iter(content_loader)
+                content = next(content_iter)
 
             try:
                 style = next(style_iter)
@@ -154,8 +143,6 @@ def train(args):
 
             content = content.to(device)
             style = style.to(device)
-            if args.flow:
-                pre_c = pre_c.to(device)
 
             # Normalize for VGG
             c_norm = normalize_for_vgg(content)
@@ -177,9 +164,7 @@ def train(args):
             t_feats_4 = adain(c4, s4)
 
             # Style strength mixing
-            local_alpha = compute_local_alpha(c4)  # (B,1,H,W)
-            final_alpha = combine_alpha(local_alpha, args.global_alpha, args.gamma)
-            t_feats_4 = final_alpha * t_feats_4 + (1.0 - final_alpha) * c4
+            t_feats_4 = args.alpha * t_feats_4 + (1.0 - args.alpha) * c4
 
             # Decode
             g = decoder(t_feats_4)
@@ -214,24 +199,23 @@ def train(args):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            # scheduler.step()    
+            scheduler.step()    
 
             pre_g = g.detach()
 
             global_step += 1
 
             if global_step % args.log_interval == 0:
-                log = ''
-                log += f"Epoch {epoch+1}/{args.epochs} "
-                log += f"Step {step+1}/{args.max_iter_per_epoch} "
-                log += f"GlobalStep {global_step} "
-                log += f"Loss: {loss.item():.4f} "
-                log += f"Content: {content_weight * content_loss.item():.4f} "
-                log += f"Style: {style_weight * style_loss.item():.4f} "
-                if args.flow:
-                    log += f"Temporal: {temporal_weight * temp_loss.item():.4f} "
-                log += f"Total_loss: {np.mean(losses):.4f}"
-                print(log)
+                print(
+                    f"Epoch {epoch+1}/{args.epochs} "
+                    f"Step {step+1}/{args.max_iter_per_epoch} "
+                    f"GlobalStep {global_step} "
+                    f"Loss: {loss.item():.4f} "
+                    f"Content: {content_weight * content_loss.item():.4f} "
+                    f"Style: {style_weight * style_loss.item():.4f} "
+                    f"Temporal: {temporal_weight * temp_loss.item():.4f} "
+                    f"Total_loss: {np.mean(losses):.4f}"
+                )
 
             if global_step % args.sample_interval == 0:
                 # save a small grid: content / style / output
@@ -274,23 +258,21 @@ if __name__ == "__main__":
                         help="Path to content image folder")
     parser.add_argument("--style", type=str, required=True,
                         help="Path to style image folder")
-    parser.add_argument("--save_dir", type=str, default="models/adain")
-    parser.add_argument("--finetune", type=str, default=None)
+    parser.add_argument("--save_dir", type=str, default="models/flow")
 
-    parser.add_argument("--image_size", type=int, default=256)
-    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--image_size", type=int, default=512)
+    parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--workers", type=int, default=4)
 
-    parser.add_argument("--epochs", type=int, default=20)
-    parser.add_argument("--max_steps", type=int, default=80000)
-    parser.add_argument("--max_iter_per_epoch", type=int, default=4000)
+    parser.add_argument("--epochs", type=int, default=40)
+    parser.add_argument("--max_steps", type=int, default=400000)
+    parser.add_argument("--max_iter_per_epoch", type=int, default=10000)
 
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--content_weight", type=float, default=1.0)
     parser.add_argument("--style_weight", type=float, default=10.0)
     parser.add_argument("--temporal_weight", type=float, default=2.0)
-    parser.add_argument("--global_alpha", type=float, default=1.0)
-    parser.add_argument("--gamma", type=float, default=1.0)
+    parser.add_argument("--alpha", type=float, default=1.0)
     parser.add_argument("--flow", type=bool, default=False)
 
     parser.add_argument("--log_interval", type=int, default=50)

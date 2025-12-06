@@ -8,8 +8,7 @@ from torchvision import transforms
 from torchvision.utils import save_image
 
 from model import VGGEncoder, Decoder, adain
-from utility import normalize_for_vgg, denorm_from_vgg, style_interpolation, match_color, compute_local_alpha, combine_alpha
-
+from utility import *
 def load_image(path: str, size: int = 512, device="cpu"):
     img = Image.open(path).convert("RGB")
     tfm = transforms.Compose([
@@ -23,8 +22,8 @@ def load_image(path: str, size: int = 512, device="cpu"):
 
 def stylize(content_path: str, style_path: str,
             decoder_path: str, output_path: str,
-            style_weights=None,preserve_color=False,
-            alpha: float = 1.0, size: int = 512, device="cpu"):
+            style_weights=None, preserve_color=False,
+            global_alpha: float = 1.0, local_alpha: bool = False, gamma: float = 1.0, size: int = 512, device="cpu"):
 
     encoder = VGGEncoder().to(device).eval()
     decoder = Decoder().to(device)
@@ -72,18 +71,25 @@ def stylize(content_path: str, style_path: str,
         t = adain(content_feat[-1], style_feat[-1])
 
     # Content-style tradeoff (α)
-    local_alpha = compute_loacl_alpha(c4)  # (B,1,H,W)
-    final_alpha = combine_alpha(local_alpha, args.global_alpha, args.gamma)
-    t_feats_4 = final_alpha * t_feats_4 + (1.0 - final_alpha) * c4
-
+    if local_alpha:
+        local_alpha = compute_local_alpha(content_feat[-1])  # (B,1,H,W)
+        final_alpha = combine_alpha(local_alpha, global_alpha, gamma)
+    else:
+        final_alpha = global_alpha
+    # final_alpha = global_alpha
+    t_feats_4 = final_alpha * t + (1.0 - final_alpha) * content_feat[-1]
+    
     # Decode
     with torch.no_grad():
-        g = decoder(t)
+        g = decoder(t_feats_4)
         g = torch.clamp(g, 0, 1)
 
     # Transfer style but keep color
     if preserve_color:
         g = match_color(content_img, g)
+
+    # g.to(device)
+    g = postprocess_image(g)
 
 
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
@@ -101,11 +107,10 @@ if __name__ == "__main__":
                         default="models/adain/decoder_epoch_14.pth",
                         help="Path to trained decoder .pth")
     parser.add_argument("--output", type=str, default="result/output.jpg")
-    parser.add_argument("--alpha", type=float, default=1.0)
-    parser.add_argument("--global_alpha", type=float, default=1.0,
-                        help="Global alpha for combining with local alpha")
-    parser.add_argument("--gamma", type=float, default=1.0,
-                        help="Gamma for global alpha adjustment")
+    parser.add_argument("--global_alpha", type=float, default=1.0)
+    parser.add_argument("--local_alpha", type=bool, default=False)
+    parser.add_argument("--gamma", type=float, default=1.0)
+        
     parser.add_argument("--preserve_color", action="store_true", default=False)
     parser.add_argument("--style_weights", nargs="+", type=float, default=None)
     parser.add_argument("--size", type=int, default=512)
@@ -113,6 +118,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     device = "cuda" if torch.cuda.is_available() else "cpu"
     stylize(args.content, args.style, args.decoder,
-            args.output, alpha=args.alpha,
+            args.output, global_alpha=args.global_alpha, gamma=args.gamma,
             style_weights=args.style_weights, preserve_color=args.preserve_color,
             size=args.size, device=device)

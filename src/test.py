@@ -18,8 +18,8 @@ style_list = ['rain_princess', 'the_scream']
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # AdaIN
-# decoder = 'models/adain/decoder_epoch_14.pth'
-# output_dir = 'result/stylized_images/adain'
+# decoder = 'models/adain/large/decoder_epoch_16.pth'
+# output_dir = 'result/stylized_images/adain/large_alpha'
 
 # Optical flow
 # decoder = f'models/adain/decoder_epoch_14.pth'
@@ -29,11 +29,10 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 #     decoder = f'models/adain/decoder_epoch_{i}.pth'
 #     output_dir = f'result/stylized_images/test/adain_epoch_{i}'    
 
-#     os.makedirs(output_dir, exist_ok=True)
 
 
-#     #Test sty_img.py with various settings
-
+#### Start here
+# def gen_img(content_list, style_list, output_dir, decoder, device, preserve_color=False, local_alpha=False):
 #     for content_img in content_list:
 #         for style_img in style_list:
 #             content_path = os.path.join('data/test/content', content_img + '.jpg')
@@ -43,35 +42,70 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 #                 f"{style_img}_{content_img}.jpg"
 #             )
 #             stylize(content_path, style_path, decoder,
-#                     output_path, alpha=1.0,
-#                     preserve_color=False,
+#                     output_path, global_alpha=1.0, local_alpha=local_alpha,
+#                     preserve_color=preserve_color,
 #                     size=512, device=device)
+            
+# decoder = 'models/adain/large/decoder_epoch_16.pth'
+# output_dir = 'result/stylized_images/adain/large/postprocess'
+
+# content_list = ['newyork', 'chicago']
+# style_list = ['asheville', 'woman_with_hat_matisse','impronte_d_artista','rain_princess']
+# gen_img(content_list, style_list, output_dir, decoder, device, preserve_color=False, local_alpha=False)  
+
+
+
+
+# decoder = 'models/adain/large/decoder_epoch_16.pth'
+# output_dir = 'result/stylized_images/adain/large/mix'
+# os.makedirs(output_dir, exist_ok=True)
+# gen_img(content_list, style_list, output_dir, decoder, device, preserve_color=False, local_alpha=False)
+
+# output_dir = 'result/stylized_images/adain/large_alpha/mix'
+# gen_img(content_list, style_list, output_dir, decoder, device, preserve_color=False, local_alpha=True)
+
+# Test sty_img.py with various settings
+# for content_img in content_list:
+#     for style_img in style_list:
+#         content_path = os.path.join('data/test/content', content_img + '.jpg')
+#         style_path = [os.path.join('data/test/style', style_img + '.jpg')]
+#         output_path = os.path.join(
+#             output_dir,
+#             f"test/{style_img}_{content_img}.png"
+#         )
+#         stylize(content_path, style_path, decoder,
+#                 output_path, global_alpha=1.0,
+#                 preserve_color=False,
+#                 size=512, device=device)
 
 # Alpha
 
 # content_path = os.path.join('data/test/content', 'chicago.jpg')
 # style_path = [os.path.join('data/test/style', 'rain_princess.jpg')]
 
-# for alpha in [1.25, 1.5]:
+# for alpha in [0, 0.25, 0.5, 0.75, 1.0]:
 #     output_path = os.path.join(
 #         output_dir,
-#         f"alpha/alpha_{alpha}_rain_princess_chicago.jpg"
+#         f"alpha/alpha_{alpha}_rain_princess_chicago.png"
 #     )
 #     stylize(content_path, style_path, decoder,
-#             output_path, alpha=alpha,
+#             output_path, global_alpha=alpha,
 #             preserve_color=False,
 #             size=512, device=device)
     
 # Preserve color
-
-# output_path = os.path.join(
-#     output_dir,
-#     f"preserve_color/style_only_rain_princess_chicago.jpg"
-# )
-# stylize(content_path, style_path, decoder,
-#         output_path, alpha=1.0,
-#         preserve_color=True,
-#         size=512, device=device)
+# for content_img in content_list:
+#     for style_img in style_list:
+#         content_path = os.path.join('data/test/content', content_img + '.jpg')
+#         style_path = [os.path.join('data/test/style', style_img + '.jpg')]
+#         output_path = os.path.join(
+#             output_dir,
+#             f"preserve_color/{style_img}_{content_img}.png"
+#         )
+#         stylize(content_path, style_path, decoder,
+#                 output_path, global_alpha=1.0,
+#                 preserve_color=True,
+#                 size=512, device=device)
 
 # Style interpolation
 
@@ -93,13 +127,13 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 #         w = W[r*5 + c]  # 4-style 权重
 #         output_path = os.path.join(
 #             output_dir, 
-#             f"style_interpolation/weights_{w.tolist()}_avril.jpg"
+#             f"style_interpolation/weights_{w.tolist()}_avril.png"
 #         )
 #         output = stylize(
 #             content_path, style_path,
 #             decoder, output_path,
 #             style_weights=w.tolist(),
-#             alpha=1.0,
+#             global_alpha=1.0,
 #             preserve_color=False,
 #             size=512,
 #             device=device
@@ -115,34 +149,62 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # output_path = os.path.join(
 #     output_dir,
-#     f"style_interpolation/4interpolation_avril.jpg"
+#     f"style_interpolation/4interpolation_avril.png"
 # )
 # save_image(final, output_path, nrow=5)
 
 # Test sty_video.py
-factor = 0.2
-model_name = 'flow'
+import time
+# style_list = ['mondrian.jpg', 'minotaur.jpg']
+# style_list = ['wave.jpg', 'la_muse.jpg', 'rain_princess.jpg']
+style_list = ['mondrian.jpg', 'rain_princess.jpg']
+start_time = time.time()
+for factor in [0.2]:
+    models = ['flow/ft_4']
+    model_paths = ['models/flow/ft_4/decoder_final.pth']
+    video = 'giraff'
+    input_video = f'data/test/{video}.mp4'
+    for model, decoder in zip(models, model_paths):
+        output_dir = f'result/stylized_videos/{model}/mask'
+        os.makedirs(output_dir, exist_ok=True)
+        for style_img in style_list:
+            style_path = os.path.join('data/test/style', style_img)
+            stylize_video(
+                input_video=input_video,
+                style_path=style_path,
+                decoder_path=decoder,
+                output_video=os.path.join(
+                    output_dir,
+                    f"{style_img.split('.')[0]}_{video}_1024_smooth{factor}.mp4"
+                ),
+                alpha=0.8,
+                max_size=1024,
+                smooth=True,
+                smooth_factor=factor,
+                device=device
+            )
+print(time.time() - start_time)
+# model = 'flow/ft_2'
+# input_video = 'data/test/fox.mp4'
+# output_dir = f'result/stylized_videos/{model}/test'
+# factor = 0.2
+# decoder = 'models/flow/ft_2/decoder_final.pth'
+# style_list = ['rain_princess', 'la_muse']
 
-input_video = 'data/test/fox.mp4'
-output_dir = f'result/stylized_videos/{model_name}'
-os.makedirs(output_dir, exist_ok=True)
-decoder = f'models/{model_name}/decoder_epoch_8.pth'
-
-
-for style_img in style_list:
-    style_path = os.path.join('data/test/style', style_img + '.jpg')
-    stylize_video(
-        input_video=input_video,
-        style_path=style_path,
-        decoder_path=decoder,
-        output_video=os.path.join(
-            output_dir,
-            f"{style_img}_fox_smooth{factor}.mp4"
-        ),
-        alpha=1.0,
-        max_size=512,
-        smooth=True,
-        smooth_factor=factor,
-        device=device
-    )
-    
+# os.makedirs(output_dir, exist_ok=True)
+# for style_img in style_list:
+#     style_path = os.path.join('data/test/style', style_img + '.jpg')
+#     stylize_video(
+#         input_video=input_video,
+#         style_path=style_path,
+#         decoder_path=decoder,
+#         output_video=os.path.join(
+#             output_dir,
+#             f"{style_img}_fox_smooth{factor}.mp4"
+#         ),
+#         alpha=1.0,
+#         max_size=512,
+#         smooth=True,
+#         smooth_factor=factor,
+#         device=device
+#     )

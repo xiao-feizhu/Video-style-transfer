@@ -8,7 +8,7 @@ from torchvision import transforms
 import torchvision.models.optical_flow as OF
 
 from model import VGGEncoder, Decoder, adain
-from utility import normalize_for_vgg, warp_with_flow
+from utility import *
 
 def load_style(style_path: str, size: int, device):
     from PIL import Image
@@ -27,6 +27,7 @@ def stylize_video(input_video: str,
                   decoder_path: str,
                   output_video: str,
                   alpha: float = 1.0,
+                  gamma: float = 1.0,
                   smooth: bool = False,
                   smooth_factor: float = 0.1,
                   max_size: int = 512,
@@ -92,17 +93,32 @@ def stylize_video(input_video: str,
             c_feats = encoder(c_norm)
             c4 = c_feats[-1]
             t = adain(c4, s4)
+            # local_alpha = compute_local_alpha(c4)  # (B,1,H,W)
+            # final_alpha = combine_alpha(local_alpha, alpha, gamma)
+            
             t = alpha * t + (1.0 - alpha) * c4
+            # t = alpha * t + (1.0 - alpha) * c4
             g = decoder(t)
             g = torch.clamp(g, 0.0, 1.0)
 
         if smooth and pre_c is not None and pre_g is not None:
             with torch.no_grad():
-                flow = raft(pre_c, frame_tensor)[-1]
-                flow_warped = warp_with_flow(pre_g, flow)
+                flow_fw = raft(pre_c, frame_tensor)[-1]
+                flow_bw = raft(frame_tensor, pre_c)[-1]
+                mask = occlusion_mask(flow_fw, flow_bw)
 
-                g = (1.0 - smooth_factor) * g + smooth_factor * flow_warped
-            
+                # local_alpha = compute_local_alpha(frame_tensor) 
+                flow_warped = warp_with_flow(pre_g, flow_fw)
+                
+                # W = smooth_factor
+                W = mask * smooth_factor
+                # W = local_alpha * mask * smooth_factor 
+                
+                g = (1.0 - W) * g + W * flow_warped
+        
+        # postprocess
+        # g = postprocess_image(g)
+
         pre_c = frame_tensor.clone()
         pre_g = g.clone()
 
